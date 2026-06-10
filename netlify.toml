@@ -1,5 +1,5 @@
 [build]
-  functions = "netlify/functions"
+  functions = "netlify/functions/api.js"
 
 [dev]
   port = 8888
