@@ -1,0 +1,9 @@
+[build]
+  functions = "netlify/functions"
+
+[dev]
+  port = 8888
+
+[[environment]]
+  SUPABASE_URL = "https://your-project.supabase.co"
+  SUPABASE_SERVICE_KEY = "your-service-role-key"
