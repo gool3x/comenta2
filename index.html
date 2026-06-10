@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Projeto Likes + Comentários</title>
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { max-width: 700px; margin: 40px auto; padding: 0 20px; background: #fafafa; color: #111; }
+    h1 { font-size: 2rem; margin-bottom: 8px; }
+    .card { background: white; border: 1px solid #e5e5e5; border-radius: 12px; padding: 24px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    button { cursor: pointer; border: none; border-radius: 8px; padding: 10px 16px; font-weight: 600; }
+    #likeBtn { background: #f1f5f9; display: flex; align-items: center; gap: 8px; }
+    #likeBtn.liked { background: #ffe4e6; color: #e11d48; }
+    #likeBtn:hover { opacity: 0.8; }
+    form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+    input, textarea { padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; }
+    textarea { resize: vertical; min-height: 80px; }
+    form button { background: #111; color: white; align-self: flex-start; }
+    .comment { padding: 12px 0; border-bottom: 1px solid #eee; }
+    .comment:last-child { border-bottom: none; }
+    .comment-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .author { font-weight: 600; }
+    .date { color: #666; font-size: 0.85rem; }
+    #loading { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Aqui seu comentário persiste, nós três, sempre foi e será nós 3</h1>
+  <p>Feito com Supabase + Netlify + Github</p>
+  <div class="card">
+    <h2 id="postTitle">Carregando...</h2>
+    <button id="likeBtn">
+      <span id="likeIcon">🤍</span>
+      <span id="likeCount">0</span> curtidas
+    </button>
+  </div>
+  <div class="card">
+    <h3>Comentários</h3>
+    <div id="commentsList">
+      <p id="loading">Carregando comentários...</p>
+    </div>
+    <form id="commentForm">
+      <input type="text" id="authorInput" placeholder="Seu nome" required maxlength="50">
+      <textarea id="contentInput" placeholder="Escreva um comentário..." required maxlength="500"></textarea>
+      <button type="submit">Enviar comentário</button>
+    </form>
+  </div>
+  <script type="module">
+    // ❌ NÃO HÁ CREDENCIAIS DO SUPABASE NO FRONTEND!
+    const POST_SLUG = 'pagina-principal'
+    
+    let visitorId = localStorage.getItem('visitor_id')
+    if (!visitorId) {
+      visitorId = crypto.randomUUID()
+      localStorage.setItem('visitor_id', visitorId)
+    }
+    
+    let currentPostId = null
+    let userHasLiked = false
+    const likeBtn = document.getElementById('likeBtn')
+    const likeIcon = document.getElementById('likeIcon')
+    const likeCount = document.getElementById('likeCount')
+    const commentsList = document.getElementById('commentsList')
+    const commentForm = document.getElementById('commentForm')
+    
+    // ✅ Chama a Netlify Function instead do Supabase direto
+    async function apiCall(endpoint, method = 'GET', data = null) {
+      const url = '/.netlify/functions/api' + endpoint
+      const options = {
+        method,
+        headers: { 'Content-Type': 'application/json' }
+      }
+      if (data) options.body = JSON.stringify(data)
+      
+      const res = await fetch(url, options)
+      if (!res.ok) throw new Error(await res.text())
+      return await res.json()
+    }
+    
+    async function loadPost() {
+      const post = await apiCall(`/post?slug=${POST_SLUG}`)
+      if (!post) return
+      currentPostId = post.id
+      document.getElementById('postTitle').textContent = post.title
+      
+      const likesData = await apiCall(`/likes?post_id=${currentPostId}&visitor_id=${visitorId}`)
+      likeCount.textContent = likesData.count || 0
+      userHasLiked = likesData.hasLiked
+      updateLikeButton()
+      loadComments()
+    }
+    
+    function updateLikeButton() {
+      likeBtn.classList.toggle('liked', userHasLiked)
+      likeIcon.textContent = userHasLiked ? '❤️' : '🤍'
+    }
+    
+    likeBtn.addEventListener('click', async () => {
+      if (!currentPostId) return
+      try {
+        const result = await apiCall('/like', 'POST', {
+          post_id: currentPostId,
+          visitor_id: visitorId,
+          action: userHasLiked ? 'remove' : 'add'
+        })
+        likeCount.textContent = result.count
+        userHasLiked = result.hasLiked
+        updateLikeButton()
+      } catch (err) {
+        console.error('Error toggling like:', err)
+      }
+    })
+    
+    async function loadComments() {
+      try {
+        const comments = await apiCall(`/comments?post_id=${currentPostId}`)
+        if (!comments.length) {
+          commentsList.innerHTML = '<p style="color:#666">Seja o primeiro a comentar!</p>'
+          return
+        }
+        commentsList.innerHTML = comments.map(c => `
+          <div class="comment">
+            <div class="comment-header">
+              <span class="author">${escapeHtml(c.author_name)}</span>
+              <span class="date">${new Date(c.created_at).toLocaleString('pt-BR')}</span>
+            </div>
+            <p>${escapeHtml(c.content)}</p>
+          </div>
+        `).join('')
+      } catch (err) {
+        console.error('Error loading comments:', err)
+        commentsList.innerHTML = '<p style="color:#e11d48">Erro ao carregar comentários</p>'
+      }
+    }
+    
+    commentForm.addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const author = document.getElementById('authorInput').value.trim()
+      const content = document.getElementById('contentInput').value.trim()
+      
+      try {
+        await apiCall('/comment', 'POST', {
+          post_id: currentPostId,
+          author_name: author,
+          content: content
+        })
+        e.target.reset()
+        loadComments()
+      } catch (err) {
+        console.error('Error posting comment:', err)
+      }
+    })
+    
+    function escapeHtml(text) {
+      const div = document.createElement('div')
+      div.textContent = text
+      return div.innerHTML
+    }
+    
+    loadPost()
+  </script>
+</body>
+</html>
